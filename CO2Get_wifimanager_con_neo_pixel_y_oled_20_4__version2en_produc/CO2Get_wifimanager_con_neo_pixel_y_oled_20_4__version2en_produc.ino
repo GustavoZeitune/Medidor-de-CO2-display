@@ -15,7 +15,7 @@
 
 
 
-// Con medición de CO2 conectando por puerto serial al sensor mh-z19c
+// Con medición de CO2 conectando por puerto serial al sensor mh-z19c  ----
 
 
 
