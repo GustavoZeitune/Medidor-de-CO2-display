@@ -137,7 +137,7 @@ void printMemory();
 //unsigned long getDataTimer = 0;
 
 long previousMillis = 0;        // will store last time LED was updated
-long interval = 30000;           // interval at which to blink (milliseconds)
+long interval = 10000;           // interval at which to blink (milliseconds)
 
 void connect();
 
@@ -418,96 +418,33 @@ void loop()
 
 void connect()
 {
-//	// Connect to Wifi.
-//  Serial.println();
-//  Serial.println();
-//  Serial.print("Connecting to ");
-//  Serial.println(WIFI_SSID);
-//	
-//	WiFi.begin(WIFI_SSID, WIFI_PASS);
-//
-//	WiFi.persistent(false);
-//	WiFi.mode(WIFI_OFF);
-//	WiFi.mode(WIFI_STA);
-//	WiFi.begin(WIFI_SSID, WIFI_PASS);
-//
-//	unsigned long wifiConnectStart = millis();
-//
-//	while (WiFi.status() != WL_CONNECTED)
-//	{
-//		// Check to see if
-//		if (WiFi.status() == WL_CONNECT_FAILED)
-//		{
-//			Serial.println("Failed to connect to WiFi. Please verify credentials: ");
-//			delay(10000);
-//		}
-//
-//		delay(500);
-//		Serial.println(".");
-//		// Only try for 5 seconds.
-//		if (millis() - wifiConnectStart > 15000)
-//		{
-//			Serial.println("Failed to connect to WiFi");
-//			return;
-//		}
-//	}
-//
-//	Serial.println("WiFi connected");
-
-
-  Serial.print("[HTTP] begin...\n");
-  
+ 
   Serial.print("SensorID:\n");
   Serial.print(SensorID + "\n");
 
 	int variable = leer_memoria(1);
- // int CO2; 
   int8_t Temp;
 
-	//Sensores
-  // CO2
-  // if (millis() - getDataTimer >= 2000)
-  // {
-
-    /* note: getCO2() default is command "CO2 Unlimited". This returns the correct CO2 reading even 
-    if below background CO2 levels or above range (useful to validate sensor). You can use the 
-    usual documented command with getCO2(false) */
-
-    
-
-  //CO2 = myMHZ19.getCO2();                             // Request CO2 (as ppm)
-    
   Serial.print("CO2 (ppm): ");                      
   Serial.println(CO2);                                
 
-    
   Temp = myMHZ19.getTemperature();                     // Request Temperature (as Celsius)
   Serial.print("Temperature (C): ");                  
   Serial.println(Temp);                               
 
-  //   getDataTimer = millis();
-  // }
-	
 	long rssi = WiFi.RSSI();
 	Serial.print("RSSI:");
 	Serial.println(rssi);
-
 	
 	int quality = dBmtoPercentage(rssi);
 	Serial.println(quality);
 
 
   // Armo string para mandarle a la web
-	//String url_post = "http://45.55.129.9/apiesp/post.php";
-	//String data_post = String(variable) + " " + " " + String(ESP.getVcc()) + " " + String(quality) + " " + String(CO2); //+ String(rssi)+ " " 
+	String url_post = "http://161.35.59.104:32769/api/sensorsCO2/measure/";
+	String data_post = "{\"mac\":\"" + SensorID + "\",\"data\":\""+ String(CO2) + "\"}";
 
-  
-  
-  //String url = "https://demoadox.com/ambientecontroladoco2/services/Services.php?acc=AD&id=" + String(SENSOR_ID) + "&co2=" + String(CO2) + "&temp=" + String(Temp) + "&bateria=" + String(ESP.getVcc()) + "&wifi=" + String(quality);
-  //String url = "http://159.203.150.67/ProAccessFace/services/Services.php?acc=TEMP&TUNO=" + String(mlx.readAmbientTempC()) + "&TDOS=" + String(mlx.readObjectTempC()) + "&ESTADO=OK";
-  //String url = "http://159.203.150.67/ProAccessFace/services/Services.php?acc=AD&id=" + String(SENSOR_ID) + "&co2=" + String(CO2) + "&temp=" + String(Temp) + "&bateria=" + String(ESP.getVcc()) + "&wifi=" + String(quality);
-
-  String url = "http://159.203.150.67/calidaddelaireadox/services/Services.php?acc=AD&id=" + SensorID + "&co2=" + String(CO2) + "&temp=" + String(Temp) + "&bateria=" + String(ESP.getVcc()) + "&wifi=" + String(quality);
+//  String url = "http://159.203.150.67/calidaddelaireadox/services/Services.php?acc=AD&id=" + SensorID + "&co2=" + String(CO2) + "&temp=" + String(Temp) + "&bateria=" + String(ESP.getVcc()) + "&wifi=" + String(quality);
   
 
 	if (variable != 1)
@@ -522,62 +459,37 @@ void connect()
 		//Serial.println("Ciclo normal");
 	}
 
-	//Serial.println("URL: " + url_post);
-	//Serial.println("DATA: " + data_post);
-  Serial.println("URL: " + url);
+	Serial.println("URL: " + url_post);
+	Serial.println("DATA: " + data_post);
 
+  Serial.print("[HTTP] begin...\n");
+  // configure traged server and url
+  http.begin(client, url_post); //HTTP
+  http.addHeader("Content-Type", "application/json");
 
-  ///HASTA ACÄ LLEGUE PROLIJO CON EL TEMA DE PONER EL GET Y NO EL POST. HAY QUE SEGUIR COPIANDO DESDE EL 
-  //PROYECTO aug27a !!!!
+  Serial.print("[HTTP] POST...\n");
+  // start connection and send HTTP header and body
+  int httpCode = http.POST(data_post);
 
-	if (http.begin(client, url))
-	{
-	  // HTTP
-		//http.addHeader("Content-Type", "text/plain");  //Specify content-type header
+  // httpCode will be negative on error
+  if (httpCode > 0) {
+    // HTTP header has been send and Server response header has been handled
+    Serial.printf("[HTTP] POST... code: %d\n", httpCode);
 
-    Serial.print("[HTTP] GET...\n");
-		// start connection and send HTTP header
-		int httpCode = http.GET();
+    // file found at server
+    if (httpCode == HTTP_CODE_OK) {
+      const String& payload = http.getString();
+      Serial.println("received payload:\n<<");
+      Serial.println(payload);
+      Serial.println(">>");
+    }
+  }
+  else {
+      Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpCode).c_str());
+  }
 
-		// httpCode will be negative on error
-		if (httpCode > 0)
-		{
-		  // HTTP header has been send and Server response header has been handled
-			Serial.printf("[HTTP] GET... code: %d\n", httpCode);
-      
-      //---------------------------------------------------------------------------------------------
-			// file found at server 
-    
-      // ESTO LO DEJO POR SI QUEREMOS MANDAR ALGÚN DATO A LA PLACA NODE DESDE EL SERVER
-      //---------------------------------------------------------------------------------------------
-      
-      //			if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
-      //			{
-      //				String payload = http.getString();
-      //				Serial.println(payload);
-      //				//este payload trae el tiempo de sleep
-      //				//PAUSA = (payload.toInt());
-      //			}
-      //		}
-      //		else
-      //		{
-      //			Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
-      //		}
-		  //Serial.println("Voy a tirar el primer http end");
-		  http.end();
-		  //Serial.println("Volví del http end 1");
-	  }
-	  else
-	  {
-		  Serial.printf("[HTTP] Unable to connect\n");
-    //	http.end();
-	  }
-	}
-	//Serial.println("Voy a tirar el segundo http end");
-	//Serial.println("Volví del http end 2");
+  http.end();
 
-	//return;
-	//Serial.println("salió del connect?");
 }
 
 uint32_t calculateCRC32(const uint8_t *data, size_t length)
