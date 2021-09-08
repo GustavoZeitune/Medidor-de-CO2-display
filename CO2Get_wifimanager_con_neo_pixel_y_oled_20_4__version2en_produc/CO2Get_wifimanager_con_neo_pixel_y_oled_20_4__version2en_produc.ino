@@ -38,6 +38,9 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_NeoPixel.h>
+#include <Ticker.h>
+
+Ticker timer_1ms;
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
@@ -134,10 +137,7 @@ uint32_t calculateCRC32(const uint8_t *data, size_t length);
 void printMemory();
 
 
-//unsigned long getDataTimer = 0;
 
-long previousMillis = 0;        // will store last time LED was updated
-long interval = 30000;           // interval at which to blink (milliseconds)
 
 void connect();
 
@@ -191,6 +191,19 @@ void escribir_memoria(int posicion, int valor)
 	}
 }
 
+long connect_tic = 0;           // interval at which to blink (milliseconds)
+long OLED_tic = 0;
+long LEDS_tic = 0;
+long CO2_tic = 0;
+
+void Timer_1ms()
+{
+  if (connect_tic > 0) connect_tic --;
+  if (OLED_tic > 0) OLED_tic --;
+  if (LEDS_tic > 0) LEDS_tic --;  
+  if (CO2_tic > 0) CO2_tic --;  
+}
+
 void setup()
 {
 
@@ -202,17 +215,11 @@ void setup()
 
   // put your setup code here, to run once:
   pixels.begin(); // This initializes the NeoPixel library.
+  pixels.show();
+  pixels.setBrightness(150);
 
-
-   for(int i=0;i<NUMPIXELS;i++)
-               {
-          
-              // pixels.Color takes RGB values, from 0,0,0 up to 255,255,255
-              
-              pixels.setPixelColor(i, pixels.Color(0,0,0)); // Moderately bright green color.
-          
-              pixels.show(); // This sends the updated pixel color to the hardware.
-               }
+  pixels.fill(pixels.Color(0,0,0),0,NUMPIXELS);
+  pixels.show();
 
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
@@ -287,130 +294,89 @@ delay(2000);
 	////////////int a = connect();
   // connect();
 
+  timer_1ms.attach_ms(1, Timer_1ms);
 }
-
 
 void loop()
 {
-  unsigned long currentMillis = millis();
   handleESPEssentials();
 
   pantalla = 1;
-  CO2 = myMHZ19.getCO2();                             // Request CO2 (as ppm)
- //AGREGADO OLED Y NEOPIXEL
- // display.invertDisplay(true);
- // delay(50);
- // display.invertDisplay(false);
-  //delay(100);
 
+  if (!CO2_tic)
+  {
+    CO2_tic = 200;
+    CO2 = myMHZ19.getCO2();                             // Request CO2 (as ppm)
+  }
+  
+  if (!OLED_tic)
+  {
+    OLED_tic = 2000;
     testdrawstyles();
+  }
+
+  if (!LEDS_tic)
+  {
+    LEDS_tic = 500;
+
           if (CO2 == 0)
           {
-               for(int i=0;i<NUMPIXELS;i++)
-               {
-          
-              // pixels.Color takes RGB values, from 0,0,0 up to 255,255,255
-              
-              pixels.setPixelColor(i, pixels.Color(0,0,255)); // Moderately bright green color.
-          
-              pixels.show(); // This sends the updated pixel color to the hardware.
-          
-            //  delay(100); // Delay for a period of time (in milliseconds).
-              cont_amarillo = 0;
-              estado_CO2 = 0;
-               }
-          
+            cont_amarillo = 0;
+            estado_CO2 = 0;
+
+            pixels.fill(pixels.Color(0,0,255),0,NUMPIXELS);
+            pixels.show();          
           }
           else if (CO2 < 700)
           {
-               for(int i=0;i<NUMPIXELS;i++)
-               {
-          
-              // pixels.Color takes RGB values, from 0,0,0 up to 255,255,255
-              
-              pixels.setPixelColor(i, pixels.Color(0,255,0)); // Moderately bright green color.
-          
-              pixels.show(); // This sends the updated pixel color to the hardware.
-          
-            //  delay(100); // Delay for a period of time (in milliseconds).
             cont_amarillo = 0;
             estado_CO2 = 1;
-               }
-          
+
+            pixels.fill(pixels.Color(0,255,0),0,NUMPIXELS);
+            pixels.show();                    
           }
           else if (CO2 < 1400)
           {
-                estado_CO2 = 2;
-                 for(int i=0;i<NUMPIXELS;i++)
-                 {
-          
-              // pixels.Color takes RGB values, from 0,0,0 up to 255,255,255
-              
-              pixels.setPixelColor(i, pixels.Color(255,100,0)); // Moderately bright green color.
-          
-              pixels.show(); // This sends the updated pixel color to the hardware.
-          
-            //  delay(100); // Delay for a period of time (in milliseconds).
-                 }
+            estado_CO2 = 2;
 
-                 cont_amarillo ++;
-                if (cont_amarillo > 1000)
-                {
-                cont_amarillo = 0;
-                 digitalWrite(LED_D6, HIGH);  // sonalert encendido
-                  delay (100);
-                  digitalWrite(LED_D6, LOW);  // sonalert apagado
-                
-                }
-
-                 
+            pixels.fill(pixels.Color(255,100,0),0,NUMPIXELS);
+            pixels.show();
+            
+            cont_amarillo ++;
+            if (cont_amarillo > 1000)
+            {
+              cont_amarillo = 0;
+              digitalWrite(LED_D6, HIGH);  // sonalert encendido
+              delay (100);
+              digitalWrite(LED_D6, LOW);  // sonalert apagado               
+            }
           }
           else
           {
-              estado_CO2 = 3;
-               
-               for(int i=0;i<NUMPIXELS;i++)
-               {
-          
-              // pixels.Color takes RGB values, from 0,0,0 up to 255,255,255
-              
-              pixels.setPixelColor(i, pixels.Color(0,0,0)); // Moderately bright green color.
-          
-              pixels.show(); // This sends the updated pixel color to the hardware.
-          
-            //  delay(500); // Delay for a period of time (in milliseconds).
-               digitalWrite(LED_D6, HIGH);  // sonalert encendido
+            estado_CO2 = 3;
             
-              
-               }
+            pixels.fill(pixels.Color(0,0,0),0,NUMPIXELS);
+            pixels.show();
 
-               delay (100);
-                 for(int i=0;i<NUMPIXELS;i++)
-               {
-          
-              // pixels.Color takes RGB values, from 0,0,0 up to 255,255,255
-              
-              pixels.setPixelColor(i, pixels.Color(255,0,0)); // Moderately bright green color.
-          
-              pixels.show(); // This sends the updated pixel color to the hardware.
-          
-            //  delay(100); // Delay for a period of time (in milliseconds).
-              digitalWrite(LED_D6, LOW);  // sonalert apagado
+            digitalWrite(LED_D6, HIGH);  // sonalert encendido
+            delay (100);
+            digitalWrite(LED_D6, LOW);  // sonalert apagado
+
+            pixels.fill(pixels.Color(255,0,0),0,NUMPIXELS);
+            pixels.show();
             
-              
-               }
-
             cont_amarillo = 0;
-               
+
           }
 
+}
 //FIN AGREGADO OLED Y NEOPIXEL
 
 
   
-  if ((WiFi.status() == WL_CONNECTED) && (currentMillis - previousMillis > interval))
+  if ((WiFi.status() == WL_CONNECTED) && !connect_tic)
   {
-    previousMillis = currentMillis;
+    connect_tic = 30000;
     connect();
   }
 }
@@ -653,94 +619,98 @@ int dBmtoPercentage(long dBm)
 
 
 
-void testdrawstyles(void) {
+void testdrawstyles(void)
+{
   display.clearDisplay();
 
-if (pantalla == 0)
-
-{
+  if (pantalla == 0)
+  {
     display.setCursor(0,55);             // Start at top-left corner
 
-  display.setTextSize(1);             // Draw 2X-scale text
-  display.setTextColor(SSD1306_WHITE);
-  display.println(F("ver: 2.0"));
+    display.setTextSize(1);             // Draw 2X-scale text
+    display.setTextColor(SSD1306_WHITE);
+    display.println(F("ver: 3.0"));
 
-      display.setCursor(15,0);             // Start at top-left corner
+    display.setCursor(15,0);             // Start at top-left corner
 
-  display.setTextSize(4);             // Draw 2X-scale text
-  display.setTextColor(SSD1306_WHITE);
-  display.println(F("ADOX"));
-
-  display.setCursor(0,30);             // Start at top-left corner
-
-  display.setTextSize(2);             // Draw 2X-scale text
-  display.setTextColor(SSD1306_WHITE);
-  display.println(F("MonitorCO2"));
-
-}else
-{
-  
-if (CO2 > 999)
-{
-  display.setTextSize(4);             // Normal 1:1 pixel scale
-}else
-{
-   display.setTextSize(6);             // Normal 1:1 pixel scale
-}
-  display.setTextColor(SSD1306_WHITE);        // Draw white text
-  
-  display.setCursor(10,0);             // Start at top-left corner
-
- if (CO2 == 0)
- {
-     display.println(F("----"));
- }else if (CO2 < 400)
- {
-     display.println(F("408"));
- }
-else
-{
-  display.println(CO2);
-}
-
-  display.setTextSize(2);             // Draw 2X-scale text
-  display.setTextColor(SSD1306_WHITE);
-
-  if (cont_display == 0)
-  { 
-  display.println(F("CO2 (ppm)"));
-  cont_display = 1;
-  }else if (cont_display == 1)
-  {
-   
-    if (estado_CO2 == 0)
-    {
-    display.println(F("SIN MED"));
-    }else if (estado_CO2 == 1)
-    {
-      display.println(F("Normal"));
-    }else if (estado_CO2 == 2)
-    {
-      display.println(F("Alta"));
-    }else
-    {
-      display.println(F("Muy Alta"));
-    }
-    cont_display = 2;
+    display.setTextSize(4);             // Draw 2X-scale text
+    display.setTextColor(SSD1306_WHITE);
+    display.println(F("ADOX"));
+    
+    display.setCursor(0,30);             // Start at top-left corner
+    
+    display.setTextSize(2);             // Draw 2X-scale text
+    display.setTextColor(SSD1306_WHITE);
+    display.println(F("MonitorCO2"));
   }
-  else if (cont_display == 2)
+  else
   {
-    if (WiFi.status()== 0)
+    if (CO2 > 999)
     {
-    display.println(F("WI-FI desc"));
-    }else if (WiFi.status()== 3)
-    {
-       display.println(F("WI-FI con"));
+      display.setTextSize(4);             // Normal 1:1 pixel scale
     }
-    cont_display = 0;
-  }
+    else
+    {
+      display.setTextSize(6);             // Normal 1:1 pixel scale
+    }
 
-}
+    display.setTextColor(SSD1306_WHITE);        // Draw white text
+    display.setCursor(10,0);             // Start at top-left corner
+
+    if (CO2 == 0)
+    {
+      display.println(F("----"));
+    }
+    else if (CO2 < 400)
+    {
+      display.println(F("408"));
+    }
+    else
+    {
+      display.println(CO2);
+    }
+
+    display.setTextSize(2);             // Draw 2X-scale text
+    display.setTextColor(SSD1306_WHITE);
+
+    if (cont_display == 0)
+    {
+      display.println(F("CO2 (ppm)"));
+      cont_display = 1;
+    }
+    else if (cont_display == 1)
+    {
+      if (estado_CO2 == 0)
+      {
+        display.println(F("SIN MED"));
+      }
+      else if (estado_CO2 == 1)
+      {
+        display.println(F("Normal"));
+      }
+      else if (estado_CO2 == 2)
+      {
+        display.println(F("Alta"));
+      }
+      else
+      {
+        display.println(F("Muy Alta"));
+      }
+      cont_display = 2;
+    }
+    else if (cont_display == 2)
+    {
+      if (WiFi.status()== 0)
+      {
+        display.println(F("WI-FI desc"));
+      }
+      else if (WiFi.status()== 3)
+      {
+        display.println(F("WI-FI con"));
+      }
+      cont_display = 0;
+    }
+  }
 
 //  display.setTextColor(SSD1306_BLACK, SSD1306_WHITE); // Draw 'inverse' text
 //  display.println(3.141592);
@@ -750,5 +720,5 @@ else
 //  display.print(F("0x")); display.println(0xDEADBEEF, HEX);
 
   display.display();
-  delay(2000);
+//  delay(2000);
 }
