@@ -252,8 +252,6 @@ void setup() {
   testdrawstyles();  // Draw 'stylized' characters
 
 
-  delay(2000);
-
   //FIN AGREGADO OLED Y NEOPIXEL
 
   initESPEssentials("Sensor_" + SensorID);
@@ -266,7 +264,30 @@ void setup() {
   delay(3000);
 
 
+  display.clearDisplay();
+  display.setTextSize(2);  // Draw 2X-scale text
 
+  display.setCursor(0, 0);  // Start at top-left corner
+  display.println(F("SensorID:"));
+ 
+  display.setCursor(0, 16);  // Start at top-left corner
+  display.println(SensorID);
+
+  display.setTextSize(1);  // Draw 2X-scale text
+
+  display.setCursor(0, 32);  // Start at top-left corner
+  display.print(F("IP: "));
+  display.println(WiFi.localIP().toString());
+
+  display.setCursor(0, 40);  // Start at top-left corner
+  display.println(F("SSID: "));
+
+  display.setCursor(0, 50);  // Start at top-left corner
+  display.println(WiFi.SSID());
+
+  display.display();
+
+  delay(3000);
 
   //	Serial.begin(115200);
   //	Serial.setTimeout(500);
@@ -592,6 +613,7 @@ void testdrawstyles(void) {
     display.setTextSize(2);  // Draw 2X-scale text
     display.setTextColor(SSD1306_WHITE);
     display.println(F("MonitorCO2"));
+
   } else {
     if (CO2 > 999) {
       display.setTextSize(4);  // Normal 1:1 pixel scale
