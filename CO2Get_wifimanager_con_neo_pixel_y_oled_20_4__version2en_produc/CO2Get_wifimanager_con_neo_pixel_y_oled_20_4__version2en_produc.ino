@@ -442,8 +442,8 @@ void connect()
 
 
   // Armo string para mandarle a la web
-	String url_post = "http://ambientecontrolado.com.ar:32769/api/device/measure";
-	String data_post = "{\"chipID\":\"" + SensorID + "\",\"co2\":"+ String(CO2) + ",\"SSID\":\""+ WiFi.SSID() + "\",\"ip\":\""+ WiFi.localIP().toString() +"\",\"signal\":" + String(quality) + ",\"firmwareVersion\":\"" +  firmVer + "\"}";
+	String url_post = "http://api.ambientecontrolado.com.ar/device/measure";
+	String data_post = "{\"data\":{\"extraData\":{\"chipId\":\"" + SensorID + "\",\"co2\":"+ String(CO2) + ",\"ssid\":\""+ WiFi.SSID() + "\",\"ip\":\""+ WiFi.localIP().toString() +"\",\"signal\":" + String(quality) + ",\"firmwareVersion\":\"" +  firmVer + "\"}}}";
 
 //  String url = "http://159.203.150.67/calidaddelaireadox/services/Services.php?acc=AD&id=" + SensorID + "&co2=" + String(CO2) + "&temp=" + String(Temp) + "&bateria=" + String(ESP.getVcc()) + "&wifi=" + String(quality);
   
@@ -468,14 +468,14 @@ void connect()
   http.begin(client, url_post); //HTTP
   http.addHeader("Content-Type", "application/json");
 
-  Serial.print("[HTTP] PUT...\n");
+  Serial.print("[HTTP] POST...\n");
   // start connection and send HTTP header and body
-  int httpCode = http.PUT(data_post);
+  int httpCode = http.POST(data_post);
 
   // httpCode will be negative on error
   if (httpCode > 0) {
     // HTTP header has been send and Server response header has been handled
-    Serial.printf("[HTTP] PUT... code: %d\n", httpCode);
+    Serial.printf("[HTTP] POST... code: %d\n", httpCode);
 
     // file found at server
     if (httpCode == HTTP_CODE_OK) {
@@ -486,7 +486,7 @@ void connect()
     }
   }
   else {
-      Serial.printf("[HTTP] PUT... failed, error: %s\n", http.errorToString(httpCode).c_str());
+      Serial.printf("[HTTP] POST... failed, error: %s\n", http.errorToString(httpCode).c_str());
   }
 
   http.end();
