@@ -38,9 +38,12 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_NeoPixel.h>
+
 #include <Ticker.h>
+#include <RTClib.h>
 
 Ticker timer_1ms;
+RTC_DS3231 rtc;
 
 #define SCREEN_WIDTH 128  // OLED display width, in pixels
 #define SCREEN_HEIGHT 64  // OLED display height, in pixels
@@ -187,12 +190,14 @@ long connect_tic = 0;  // interval at which to blink (milliseconds)
 long OLED_tic = 0;
 long LEDS_tic = 0;
 long CO2_tic = 0;
+long guardar_datos_tic = 0;
 
 void Timer_1ms() {
   if (connect_tic > 0) connect_tic--;
   if (OLED_tic > 0) OLED_tic--;
   if (LEDS_tic > 0) LEDS_tic--;
   if (CO2_tic > 0) CO2_tic--;
+  if (guardar_datos_tic > 0) guardar_datos_tic--;
 }
 
 void setup() {
@@ -307,6 +312,16 @@ void setup() {
 
   timer_1ms.attach_ms(1, Timer_1ms);
 
+  if (! rtc.begin()) {
+    Serial.println("Couldn't find RTC");
+  }
+
+  if (!SPIFFS.begin())
+  {
+    Serial.println("[Storage] Couldn't mount file system.");
+  }
+
+
 }
 
 void loop() {
@@ -370,7 +385,37 @@ void loop() {
   }
   //FIN AGREGADO OLED Y NEOPIXEL
 
+  if (!guardar_datos_tic) {
+    guardar_datos_tic = 60000;
 
+    DateTime now = rtc.now();
+    Serial.println(now.timestamp(DateTime::TIMESTAMP_FULL));
+
+    if (!SPIFFS.exists("/datos.csv")) {
+      File file = SPIFFS.open("/datos.csv", "w");
+
+      if (file)
+        file.close();
+      else
+        Serial.println("Fallo al crear archivo");
+    }
+
+    if (SPIFFS.exists("/datos.csv")) {
+      File file = SPIFFS.open("/datos.csv", "a");
+      file.print(now.timestamp(DateTime::TIMESTAMP_FULL));
+      file.print(',');
+
+      if (CO2 == 0)
+        file.println("---");
+      else if (CO2 < 400)
+        file.println("408");
+      else
+        file.println(CO2);
+      
+      Serial.println(file.size());
+      file.close();      
+    }
+  }
 
   if ((WiFi.status() == WL_CONNECTED) && !connect_tic) {
     connect_tic = 30000;
