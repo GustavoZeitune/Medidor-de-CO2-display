@@ -442,7 +442,7 @@ void connect()
 
 
   // Armo string para mandarle a la web
-	String url_post = "http://api.ambientecontrolado.com.ar/device/measure";
+	String url_post = "http://data.ambientecontrolado.com.ar/device/measure";
 	String data_post = "{\"data\":{\"extraData\":{\"chipId\":\"" + SensorID + "\",\"co2\":"+ String(CO2) + ",\"ssid\":\""+ WiFi.SSID() + "\",\"ip\":\""+ WiFi.localIP().toString() +"\",\"signal\":" + String(quality) + ",\"firmwareVersion\":\"" +  firmVer + "\"}}}";
 
 //  String url = "http://159.203.150.67/calidaddelaireadox/services/Services.php?acc=AD&id=" + SensorID + "&co2=" + String(CO2) + "&temp=" + String(Temp) + "&bateria=" + String(ESP.getVcc()) + "&wifi=" + String(quality);
