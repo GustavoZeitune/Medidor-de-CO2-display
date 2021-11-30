@@ -3,28 +3,9 @@
 #include <WebServer.h>
 #include <Wifi.h>
 
-// upDated: 06/01/21
-//
-// Proyecto para medición de CO2 ambiental:
-// WiFi
-// MLX
-// On/Off con GPIO al MLX
-// Con ruta de envío de datos de temperatura a server
-// String url = "http://45.55.129.9/apiesp/?data=" + String(variable);
-// http://demoadox.com/ambientecontroladoco2/services/Services.php?acc=AD&id=xx&co2=xxxx&temp=xx.x&bateria=xxxx&wifi=xxx
+String firmVer = "5.0";
 
-
-
-// Con medición de CO2 conectando por puerto serial al sensor mh-z19c  ----
-
-
-
-// con A/D para los 3,3 de la "batería"
-
-// Queda pendiente sumar el tema del OTA + HTTPS como
-// está en el post que tengo anotado.
-
-// Se suma la el RSSI (potencia de señal de wifi) como 4to parámetro
+String webpage = "";
 
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
@@ -57,28 +38,6 @@ RTC_DS3231 rtc;
 #define SCREEN_ADDRESS 0x3C     ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-#define NUMFLAKES 10  // Number of snowflakes in the animation example
-
-#define LOGO_HEIGHT 16
-#define LOGO_WIDTH 16
-static const unsigned char PROGMEM logo_bmp[] = { B00000000, B11000000,
-                                                  B00000001, B11000000,
-                                                  B00000001, B11000000,
-                                                  B00000011, B11100000,
-                                                  B11110011, B11100000,
-                                                  B11111110, B11111000,
-                                                  B01111110, B11111111,
-                                                  B00110011, B10011111,
-                                                  B00011111, B11111100,
-                                                  B00001101, B01110000,
-                                                  B00011011, B10100000,
-                                                  B00111111, B11100000,
-                                                  B00111111, B11110000,
-                                                  B01111100, B11110000,
-                                                  B01110000, B01110000,
-                                                  B00000000, B00110000 };
-
-
 // Which pin on the ESP8266 is connected to the NeoPixels?
 #define PIN 0
 
@@ -98,24 +57,19 @@ int estado_CO2 = 0;
 
 //FIN AGREGADO OLED Y NEOPIXEL
 
-
-
 #define RX_PIN 13      // D7 - Rx pin which the MHZ19 Tx pin is attached to
 #define TX_PIN 15      // D8 - Tx pin which the MHZ19 Rx pin is attached to
 #define BAUDRATE 9600  // Device to MH-Z19 Serial baudrate (should not be changed)
 
 #define LED_D6 12
 
-//#define SENSOR_ID String(ESP.getChipId())  //Esto lo vamos hardcodeando por ahora sensor a sensor así lo podemos identificar en el software de ambiente controlado.
 const String SensorID = String(ESP.getChipId(), HEX);
 
+HTTPClient http_post;
+WiFiClient client_post;
+HTTPClient http_get;
+WiFiClient client_get;
 
-// WiFi credentials.
-//const char *WIFI_SSID = "ADOXWIFI"; //"Fibertel WiFi663"; //"Desarrollos"; //"Moto 9586";
-//const char *WIFI_PASS = "adoxwifi"; //"0043185996";     //"adox1225";//"titi2011";
-
-HTTPClient http;
-WiFiClient client;
 
 const int RSSI_MAX = -50;   // define maximum strength of signal in dBm
 const int RSSI_MIN = -100;  // define minimum strength of signal in dBm
@@ -133,64 +87,16 @@ int CO2;
 ADC_MODE(ADC_VCC);  //este modo sirve para habilitar el divisor interno y
 //y poder medir correctamente el BUS de 3.3v
 
-uint32_t calculateCRC32(const uint8_t *data, size_t length);
-
-// helper function to dump memory contents as hex
-void printMemory();
-
-
-
-
 void connect();
-
-// Structure which will be stored in RTC memory.
-// First field is CRC32, which is calculated based on the
-// rest of structure contents.
-// Any fields can go after CRC32.
-// We use byte array as an example.
-struct
-{
-  uint32_t crc32;
-  byte data[508];
-} rtcData;
-
-//WiFiClientSecure wifiClient;
-
-//Lee una posicion de memoria volatil que se resetea cuando quitamos la bateria, con deepsleep persiste
-int leer_memoria(int posicion) {
-  int valor = 0;
-
-  // Read struct from RTC memory
-  if (ESP.rtcUserMemoryRead(0, (uint32_t *)&rtcData, sizeof(rtcData))) {
-    uint32_t crcOfData = calculateCRC32((uint8_t *)&rtcData.data[0], sizeof(rtcData.data));
-    if (crcOfData != rtcData.crc32) {
-      //Serial.println("CRC32 in RTC memory doesn't match CRC32 of data. Data is probably invalid!");
-      valor = 0;
-    } else {
-      //Serial.println("CRC32 check ok, data is probably valid.");
-      valor = rtcData.data[posicion];
-    }
-  }
-  return valor;
-}
-
-//Escribe una posicion de memoria volatil que se resetea cuando quitamos la bateria, con deepsleep persiste
-void escribir_memoria(int posicion, int valor) {
-  rtcData.data[posicion] = valor;
-
-  // Update CRC32 of data
-  rtcData.crc32 = calculateCRC32((uint8_t *)&rtcData.data[0], sizeof(rtcData.data));
-  // Write struct to RTC memory
-  if (ESP.rtcUserMemoryWrite(0, (uint32_t *)&rtcData, sizeof(rtcData))) {
-    Serial.println("Escritura ok");
-  }
-}
 
 long connect_tic = 0;  // interval at which to blink (milliseconds)
 long OLED_tic = 0;
 long LEDS_tic = 0;
 long CO2_tic = 0;
 long guardar_datos_tic = 0;
+
+#define MAX_BYTES 1500000
+
 
 void Timer_1ms() {
   if (connect_tic > 0) connect_tic--;
@@ -203,7 +109,7 @@ void Timer_1ms() {
 void setup() {
 
   //AGREGADO OLED Y NEOPIXEL
-  Serial.begin(9600);
+  Serial.begin(115200);
 
   pinMode(LED_D6, OUTPUT);
 
@@ -227,15 +133,7 @@ void setup() {
   // the library initializes this with an Adafruit splash screen.
   display.display();
 
-
   display.clearDisplay();
-
-
-
-
-
-
-  //delay(2000); // Pause for 2 seconds
 
   // Clear the buffer
   display.clearDisplay();
@@ -252,21 +150,32 @@ void setup() {
   // drawing operations and then update the screen all at once by calling
   // display.display(). These examples demonstrate both approaches...
 
-
-
   testdrawstyles();  // Draw 'stylized' characters
 
 
   //FIN AGREGADO OLED Y NEOPIXEL
 
-  initESPEssentials("Sensor_" + SensorID);
+  //initESPEssentials("Sensor_" + SensorID);
+  WiFi.softAP(Wifi.getDefaultAPName());
+  WebServer.init();
+  OTA.init();
+  
 
   WebServer.on("/reset_wifi", HTTP_GET, [&]() {
     WebServer.send(200, "text/plain", "Wifi settings reset.");
     Wifi.resetSettings();
   });
 
-  delay(3000);
+  WebServer.on("/borrar_memoria", HTTP_GET, [&]() {
+    if (SPIFFS.format()) WebServer.send(200, "text/plain", "Memoria borrada OK");
+    else WebServer.send(200, "text/plain", "Error al borrar Memoria");
+  });
+
+  WebServer.on("/download", File_Download);
+  WebServer.on("/config", Config_Page);
+
+
+  delay(2000);
 
 
   display.clearDisplay();
@@ -277,6 +186,9 @@ void setup() {
  
   display.setCursor(0, 16);  // Start at top-left corner
   display.println(SensorID);
+
+  display.display();
+  delay(2000);
 
   display.setTextSize(1);  // Draw 2X-scale text
 
@@ -291,16 +203,7 @@ void setup() {
   display.println(WiFi.SSID());
 
   display.display();
-
   delay(3000);
-
-  //	Serial.begin(115200);
-  //	Serial.setTimeout(500);
-
-  // Wait for serial to initialize.
-  //	while (!Serial)
-  //	{
-  //	}
 
   mySerial.begin(BAUDRATE);  // (Uno example) device to MH-Z19 serial start
   myMHZ19.begin(mySerial);   // *Serial(Stream) refence must be passed to library begin().
@@ -325,7 +228,8 @@ void setup() {
 }
 
 void loop() {
-  handleESPEssentials();
+  WebServer.handleClient();
+  OTA.handle();
 
   pantalla = 1;
 
@@ -388,33 +292,38 @@ void loop() {
   if (!guardar_datos_tic) {
     guardar_datos_tic = 60000;
 
+    FSInfo fsInfo;
+    SPIFFS.info(fsInfo);
+    Serial.print("FS Total Bytes: ");
+    Serial.println(fsInfo.totalBytes);
+    Serial.print("FS Used Bytes: ");
+    Serial.println(fsInfo.usedBytes);
+          
     DateTime now = rtc.now();
     Serial.println(now.timestamp(DateTime::TIMESTAMP_FULL));
 
-    if (!SPIFFS.exists("/datos.csv")) {
-      File file = SPIFFS.open("/datos.csv", "w");
-
-      if (file)
-        file.close();
-      else
-        Serial.println("Fallo al crear archivo");
+    if (fsInfo.usedBytes < MAX_BYTES) {
+      File file = SPIFFS.open("/Log_"+ now.timestamp(DateTime::TIMESTAMP_DATE) + "_" + SensorID + ".csv", "a");
+  
+      if (file) {
+        file.print(now.timestamp(DateTime::TIMESTAMP_FULL));
+        file.print(',');
+  
+        if (CO2 == 0)
+          file.println("---");
+        else if (CO2 < 400)
+          file.println("408");
+        else
+          file.println(CO2);
+        
+        Serial.println(file.size());
+        file.close();      
+      }
+      else {
+        Serial.println("Fallo al abrir archivo");
+      }
     }
-
-    if (SPIFFS.exists("/datos.csv")) {
-      File file = SPIFFS.open("/datos.csv", "a");
-      file.print(now.timestamp(DateTime::TIMESTAMP_FULL));
-      file.print(',');
-
-      if (CO2 == 0)
-        file.println("---");
-      else if (CO2 < 400)
-        file.println("408");
-      else
-        file.println(CO2);
-      
-      Serial.println(file.size());
-      file.close();      
-    }
+    else Serial.println("Memoria llena");      
   }
 
   if ((WiFi.status() == WL_CONNECTED) && !connect_tic) {
@@ -425,192 +334,89 @@ void loop() {
 
 
 void connect() {
-  //	// Connect to Wifi.
-  //  Serial.println();
-  //  Serial.println();
-  //  Serial.print("Connecting to ");
-  //  Serial.println(WIFI_SSID);
-  //
-  //	WiFi.begin(WIFI_SSID, WIFI_PASS);
-  //
-  //	WiFi.persistent(false);
-  //	WiFi.mode(WIFI_OFF);
-  //	WiFi.mode(WIFI_STA);
-  //	WiFi.begin(WIFI_SSID, WIFI_PASS);
-  //
-  //	unsigned long wifiConnectStart = millis();
-  //
-  //	while (WiFi.status() != WL_CONNECTED)
-  //	{
-  //		// Check to see if
-  //		if (WiFi.status() == WL_CONNECT_FAILED)
-  //		{
-  //			Serial.println("Failed to connect to WiFi. Please verify credentials: ");
-  //			delay(10000);
-  //		}
-  //
-  //		delay(500);
-  //		Serial.println(".");
-  //		// Only try for 5 seconds.
-  //		if (millis() - wifiConnectStart > 15000)
-  //		{
-  //			Serial.println("Failed to connect to WiFi");
-  //			return;
-  //		}
-  //	}
-  //
-  //	Serial.println("WiFi connected");
-
-
-  Serial.print("[HTTP] begin...\n");
+  int8_t Temp;
 
   Serial.print("SensorID:\n");
   Serial.print(SensorID + "\n");
 
-  int variable = leer_memoria(1);
-  // int CO2;
-  int8_t Temp;
-
-  //Sensores
-  // CO2
-  // if (millis() - getDataTimer >= 2000)
-  // {
-
-  /* note: getCO2() default is command "CO2 Unlimited". This returns the correct CO2 reading even
-    if below background CO2 levels or above range (useful to validate sensor). You can use the
-    usual documented command with getCO2(false) */
-
-
-
-  //CO2 = myMHZ19.getCO2();                             // Request CO2 (as ppm)
-
   Serial.print("CO2 (ppm): ");
   Serial.println(CO2);
-
-
+  
   Temp = myMHZ19.getTemperature();  // Request Temperature (as Celsius)
   Serial.print("Temperature (C): ");
   Serial.println(Temp);
-
-  //   getDataTimer = millis();
-  // }
 
   long rssi = WiFi.RSSI();
   Serial.print("RSSI:");
   Serial.println(rssi);
 
-
   int quality = dBmtoPercentage(rssi);
   Serial.println(quality);
 
+  /*****************************************Envio al sistema nuevo por metodo POST****************************************/
+  
+  String url_post = "http://data.ambientecontrolado.com.ar/device/measure";
+  String data_post = "{\"data\":{\"extraData\":{\"chipId\":\"" + SensorID + "\",\"co2\":"+ String(CO2) + ",\"ssid\":\""+ WiFi.SSID() + "\",\"ip\":\""+ WiFi.localIP().toString() +"\",\"signal\":" + String(quality) + ",\"firmwareVersion\":\"" +  firmVer + "\"}}}";
 
-  // Armo string para mandarle a la web
-  //String url_post = "http://45.55.129.9/apiesp/post.php";
-  //String data_post = String(variable) + " " + " " + String(ESP.getVcc()) + " " + String(quality) + " " + String(CO2); //+ String(rssi)+ " "
+  Serial.println("URL: " + url_post);
+  Serial.println("DATA: " + data_post);
 
+  Serial.print("[HTTP] begin...\n");
+  // configure traged server and url
+  http_post.begin(client_post, url_post); //HTTP
+  http_post.addHeader("Content-Type", "application/json");
 
+  Serial.print("[HTTP] POST...\n");
+  // start connection and send HTTP header and body
+  int httpCode_post = http_post.POST(data_post);
 
-  //String url = "https://demoadox.com/ambientecontroladoco2/services/Services.php?acc=AD&id=" + String(SENSOR_ID) + "&co2=" + String(CO2) + "&temp=" + String(Temp) + "&bateria=" + String(ESP.getVcc()) + "&wifi=" + String(quality);
-  //String url = "http://159.203.150.67/ProAccessFace/services/Services.php?acc=TEMP&TUNO=" + String(mlx.readAmbientTempC()) + "&TDOS=" + String(mlx.readObjectTempC()) + "&ESTADO=OK";
-  //String url = "http://159.203.150.67/ProAccessFace/services/Services.php?acc=AD&id=" + String(SENSOR_ID) + "&co2=" + String(CO2) + "&temp=" + String(Temp) + "&bateria=" + String(ESP.getVcc()) + "&wifi=" + String(quality);
+  // httpCode will be negative on error
+  if (httpCode_post > 0) {
+    // HTTP header has been send and Server response header has been handled
+    Serial.printf("[HTTP] POST... code: %d\n", httpCode_post);
+
+    // file found at server
+    if (httpCode_post == HTTP_CODE_OK) {
+      const String& payload = http_post.getString();
+      Serial.println("received payload:\n<<");
+      Serial.println(payload);
+      Serial.println(">>");
+    }
+  }
+  else {
+      Serial.printf("[HTTP] POST... failed, error: %s\n", http_post.errorToString(httpCode_post).c_str());
+  }
+
+  http_post.end();
+  
+  /********************************Envio al servidor Calidaddelaireadox por metodo GET**************************************/
+
+  Serial.print("[HTTP] begin...\n");
 
   String url = "http://159.203.150.67/calidaddelaireadox/services/Services.php?acc=AD&id=" + SensorID + "&co2=" + String(CO2) + "&temp=" + String(Temp) + "&bateria=" + String(ESP.getVcc()) + "&wifi=" + String(quality);
 
-
-  if (variable != 1) {
-    //Serial.println("-------------------------------------");
-    //Serial.println("Parece que fue un booteo");
-    //Serial.println("-------------------------------------");
-    escribir_memoria(1, 1);
-  } else {
-    //Serial.println("Ciclo normal");
-  }
-
-  //Serial.println("URL: " + url_post);
-  //Serial.println("DATA: " + data_post);
   Serial.println("URL: " + url);
 
-
-  ///HASTA ACÄ LLEGUE PROLIJO CON EL TEMA DE PONER EL GET Y NO EL POST. HAY QUE SEGUIR COPIANDO DESDE EL
-  //PROYECTO aug27a !!!!
-
-  if (http.begin(client, url)) {
+  if (http_get.begin(client_get, url)) {
     // HTTP
     //http.addHeader("Content-Type", "text/plain");  //Specify content-type header
 
     Serial.print("[HTTP] GET...\n");
     // start connection and send HTTP header
-    int httpCode = http.GET();
+    int httpCode_get = http_get.GET();
 
     // httpCode will be negative on error
-    if (httpCode > 0) {
+    if (httpCode_get > 0) {
       // HTTP header has been send and Server response header has been handled
-      Serial.printf("[HTTP] GET... code: %d\n", httpCode);
+      Serial.printf("[HTTP] GET... code: %d\n", httpCode_get);
 
-      //---------------------------------------------------------------------------------------------
-      // file found at server
-
-      // ESTO LO DEJO POR SI QUEREMOS MANDAR ALGÚN DATO A LA PLACA NODE DESDE EL SERVER
-      //---------------------------------------------------------------------------------------------
-
-      //			if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
-      //			{
-      //				String payload = http.getString();
-      //				Serial.println(payload);
-      //				//este payload trae el tiempo de sleep
-      //				//PAUSA = (payload.toInt());
-      //			}
-      //		}
-      //		else
-      //		{
-      //			Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
-      //		}
-      //Serial.println("Voy a tirar el primer http end");
-      http.end();
-      //Serial.println("Volví del http end 1");
-    } else {
+      http_get.end();
+    }
+    else {
       Serial.printf("[HTTP] Unable to connect\n");
-      //	http.end();
     }
   }
-  //Serial.println("Voy a tirar el segundo http end");
-  //Serial.println("Volví del http end 2");
 
-  //return;
-  //Serial.println("salió del connect?");
-}
-
-uint32_t calculateCRC32(const uint8_t *data, size_t length) {
-  uint32_t crc = 0xffffffff;
-  while (length--) {
-    uint8_t c = *data++;
-    for (uint32_t i = 0x80; i > 0; i >>= 1) {
-      bool bit = crc & 0x80000000;
-      if (c & i) {
-        bit = !bit;
-      }
-      crc <<= 1;
-      if (bit) {
-        crc ^= 0x04c11db7;
-      }
-    }
-  }
-  return crc;
-}
-
-//prints all rtcData, including the leading crc32
-void printMemory() {
-  char buf[3];
-  uint8_t *ptr = (uint8_t *)&rtcData;
-  for (size_t i = 0; i < sizeof(rtcData); i++) {
-    sprintf(buf, "%02X", ptr[i]);
-    //Serial.print(buf);
-    if ((i + 1) % 32 == 0) {
-      //Serial.println();
-    } else {
-      //Serial.print(" ");
-    }
-  }
 }
 
 /*
@@ -645,7 +451,7 @@ void testdrawstyles(void) {
 
     display.setTextSize(1);  // Draw 2X-scale text
     display.setTextColor(SSD1306_WHITE);
-    display.println(F("ver: 3.0"));
+    display.println(firmVer);
 
     display.setCursor(15, 0);  // Start at top-left corner
 
@@ -704,13 +510,147 @@ void testdrawstyles(void) {
     }
   }
 
-  //  display.setTextColor(SSD1306_BLACK, SSD1306_WHITE); // Draw 'inverse' text
-  //  display.println(3.141592);
-
-  //  display.setTextSize(2);             // Draw 2X-scale text
-  //  display.setTextColor(SSD1306_WHITE);
-  //  display.print(F("0x")); display.println(0xDEADBEEF, HEX);
-
   display.display();
   //  delay(2000);
+}
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+void File_Download() { // This gets called twice, the first pass selects the input, the second pass then processes the command line arguments
+  if (WebServer.args() > 0 ) { // Arguments were received
+    if (WebServer.hasArg("download")) SD_file_download(WebServer.arg(0));
+    if (WebServer.hasArg("borrar")) SD_file_borrar(WebServer.arg(0));
+  }
+  else SelectInput("Descarga de Archivos", "Presione \"descargar\" para bajar el archivo o \"borrar\" para borrarlo", "download", "download");
+}
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+void Config_Page() { // This gets called twice, the first pass selects the input, the second pass then processes the command line arguments
+  if (WebServer.args() > 0 ) { // Arguments were received
+    if (WebServer.hasArg("currentDateTime")) Set_Date_Time(WebServer.arg(0));
+  }
+  else {    
+    SendHTML_Header();
+    webpage += F("<h2>Ajustar Fecha y Hora</h2>");
+
+    DateTime now = rtc.now();
+    webpage += F("<p>Fecha y Hora actual: ") + now.timestamp(DateTime::TIMESTAMP_DATE) + F("&nbsp;&nbsp;&nbsp;&nbsp;") + now.timestamp(DateTime::TIMESTAMP_TIME) + F("</p>");
+    webpage += F("<p>Seleccione nueva Fecha y Hora: </p>");
+    webpage += F("<FORM action='/config'>"); // Must match the calling argument e.g. '/chart' calls '/chart' after selection but with arguments!
+    webpage += F("<input type='datetime-local' id='currentDateTime' name='currentDateTime'>");
+    webpage += F("<input type='submit'>");
+    webpage += F("</FORM></body></html>");
+    SendHTML_Content();
+    SendHTML_Stop();
+    
+  }
+}
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+void SD_file_download(String filename) {
+  File download = SPIFFS.open("/" + filename, "r");
+  if (download) {
+    WebServer.sendHeader("Content-Type", "text/text");
+    WebServer.sendHeader("Content-Disposition", "attachment; filename=" + filename);
+    WebServer.sendHeader("Connection", "close");
+    WebServer.streamFile(download, "application/octet-stream");
+    download.close();
+  } else ReportFileNotPresent("download");
+}
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+void SD_file_borrar(String filename) {
+    SendHTML_Header();
+    if (SPIFFS.remove("/" + filename))
+      webpage += F("<h3>El archivo se borro con exito</h3>");
+    else
+      webpage += F("<h3>Error al borrar archivo</h3>");
+    webpage += F("<a href='/download'>[Back]</a><br><br>");
+    webpage += F("</body></html>");
+    SendHTML_Content();
+    SendHTML_Stop();
+}
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+void Set_Date_Time(const String currentDateTime) {
+    rtc.adjust(DateTime(currentDateTime.c_str()));
+//    rtc.adjust(DateTime("2021-11-29T13:45"));
+    SendHTML_Header();
+    webpage += F("<h3>Fecha y hora actulizada</h3>");
+    webpage += F("<a href='/config'>[Back]</a><br><br>");
+    webpage += F("</body></html>");
+    SendHTML_Content();
+    SendHTML_Stop();
+}
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+void SendHTML_Header() {
+  WebServer.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  WebServer.sendHeader("Pragma", "no-cache");
+  WebServer.sendHeader("Expires", "-1");
+  WebServer.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  WebServer.send(200, "text/html", ""); // Empty content inhibits Content-length header so we have to close the socket ourselves.
+  append_page_header();
+  WebServer.sendContent(webpage);
+  webpage = "";
+}
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+void SendHTML_Content() {
+  WebServer.sendContent(webpage);
+  webpage = "";
+}
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+void SendHTML_Stop() {
+  WebServer.sendContent("");
+  WebServer.client().stop(); // Stop is needed because no content length was sent
+}
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+void SelectInput(String heading1, String heading2, String command, String arg_calling_name) {
+  SendHTML_Header();
+  webpage += F("<h3 class='rcorners_m'>"); webpage += heading1 + "</h3>";
+
+  webpage += F("<h3>   Nombre  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;  Tamaño   </h3>");
+  webpage += F("<FORM action='/"); webpage += command + "' method='post'>"; // Must match the calling argument e.g. '/chart' calls '/chart' after selection but with arguments!
+
+  String filename = "";
+  Dir dir = SPIFFS.openDir("/");
+  long usedbytes=0;
+  while (dir.next()) {
+    usedbytes += dir.fileSize();
+    filename = dir.fileName();
+    filename.remove(0,1);
+    webpage += F("<p>"); webpage += dir.fileName() + F("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;") + dir.fileSize() + F(" bytes &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
+    webpage += F("<button type='submit' name='download' value='") + filename + F("'>descargar</button> ");
+    webpage += F("<button type='submit' name='borrar' value='") + filename + F("'>borrar</button> </p>");    
+  }
+  
+  webpage += F("<h3>"); webpage += heading2 + "</h3>";
+  
+  FSInfo fsInfo;
+  SPIFFS.info(fsInfo);
+  Serial.println(fsInfo.totalBytes);
+  webpage += F("<p>Bytes usados: "); webpage += String(usedbytes) + F(" / ")+ String(fsInfo.totalBytes) + F("</p>");
+
+  if (fsInfo.usedBytes >= MAX_BYTES)
+      webpage += F("<h3 style='color:Tomato;'>Memoria llena, por favor borre archivos para seguir grabando información</h3>");
+
+//  webpage += F("<FORM action='/"); webpage += command + "' method='post'>"; // Must match the calling argument e.g. '/chart' calls '/chart' after selection but with arguments!
+//  webpage += F("<input type='text' name='"); webpage += arg_calling_name; webpage += F("' value=''><br>");
+//  webpage += F("<type='submit' name='"); webpage += arg_calling_name; webpage += F("' value=''><br><br>");
+  webpage += F("</FORM></body></html>");
+  SendHTML_Content();
+  SendHTML_Stop();
+}
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+void ReportFileNotPresent(String target) {
+  SendHTML_Header();
+  webpage += F("<h3>El archivo no existe</h3>");
+  webpage += F("<a href='/"); webpage += target + "'>[Back]</a><br><br>";
+  webpage += F("</body></html>");
+  SendHTML_Content();
+  SendHTML_Stop();
+}
+
+void append_page_header() {
+  webpage  = F("<!DOCTYPE html><html>");
+  webpage += F("<head>");
+  webpage += F("<title>File Server</title>"); // NOTE: 1em = 16px
+  webpage += F("<meta name='viewport' content='user-scalable=yes,initial-scale=1.0,width=device-width'>");
+  webpage += F("<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"/>");
+  webpage += F("<style>");
+  webpage += F("</style></head><body>");
 }
