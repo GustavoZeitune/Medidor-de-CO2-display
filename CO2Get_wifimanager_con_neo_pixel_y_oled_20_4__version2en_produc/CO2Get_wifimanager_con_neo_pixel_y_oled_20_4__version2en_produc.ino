@@ -3,7 +3,7 @@
 #include <WebServer.h>
 #include <Wifi.h>
 
-String firmVer = "5.0";
+String firmVer = "6.0";
 
 String webpage = "";
 
@@ -81,7 +81,8 @@ MHZ19 myMHZ19;                            // Constructor for library
 SoftwareSerial mySerial(RX_PIN, TX_PIN);  // (Uno example) create device to MH-Z19 serial
 
 
-int CO2;
+int muestras_CO2[11];
+byte index_CO2 = 1;
 
 
 ADC_MODE(ADC_VCC);  //este modo sirve para habilitar el divisor interno y
@@ -94,6 +95,8 @@ long OLED_tic = 0;
 long LEDS_tic = 0;
 long CO2_tic = 0;
 long guardar_datos_tic = 0;
+
+bool RTC_OK;
 
 #define MAX_BYTES 1500000
 
@@ -155,10 +158,10 @@ void setup() {
 
   //FIN AGREGADO OLED Y NEOPIXEL
 
-  //initESPEssentials("Sensor_" + SensorID);
-  WiFi.softAP(Wifi.getDefaultAPName());
-  WebServer.init();
-  OTA.init();
+  initESPEssentials("Sensor_" + SensorID);
+//  WiFi.softAP(Wifi.getDefaultAPName());
+//  WebServer.init();
+//  OTA.init();
   
 
   WebServer.on("/reset_wifi", HTTP_GET, [&]() {
@@ -215,9 +218,11 @@ void setup() {
 
   timer_1ms.attach_ms(1, Timer_1ms);
 
-  if (! rtc.begin()) {
+  if (!rtc.begin()) {
     Serial.println("Couldn't find RTC");
+    RTC_OK = 0;
   }
+  else RTC_OK = 1;
 
   if (!SPIFFS.begin())
   {
@@ -228,6 +233,7 @@ void setup() {
 }
 
 void loop() {
+  handleESPEssentials();
   WebServer.handleClient();
   OTA.handle();
 
@@ -235,7 +241,30 @@ void loop() {
 
   if (!CO2_tic) {
     CO2_tic = 2000;
-    CO2 = myMHZ19.getCO2();  // Request CO2 (as ppm)
+    long CO2_aux = myMHZ19.getCO2();  // Request CO2 (as ppm
+    Serial.println(CO2_aux);
+
+    if (CO2_aux > 0) {
+
+//      for (int i = 1 ; i < 11 ; i++){
+//        Serial.print(muestras_CO2[i]);
+//        Serial.print(" ");                
+//      }
+//      Serial.println("|");                
+
+      muestras_CO2[index_CO2] = CO2_aux;
+      index_CO2++;
+      if (index_CO2 == 11) index_CO2 = 1;
+
+      CO2_aux = 0;
+      for (int i = 1 ; i < 11 ; i++){
+        CO2_aux += muestras_CO2[i];        
+      }
+      muestras_CO2[0] = CO2_aux / 10;
+    }
+    else {
+      
+    }
   }
 
   if (!OLED_tic) {
@@ -246,19 +275,19 @@ void loop() {
   if (!LEDS_tic) {
     LEDS_tic = 500;
 
-    if (CO2 == 0) {
+    if (muestras_CO2[0] == 0) {
       cont_amarillo = 0;
       estado_CO2 = 0;
 
       pixels.fill(pixels.Color(0, 0, 255), 0, NUMPIXELS);
       pixels.show();
-    } else if (CO2 < 700) {
+    } else if (muestras_CO2[0] < 700) {
       cont_amarillo = 0;
       estado_CO2 = 1;
 
       pixels.fill(pixels.Color(0, 255, 0), 0, NUMPIXELS);
       pixels.show();
-    } else if (CO2 < 1400) {
+    } else if (muestras_CO2[0] < 1400) {
       estado_CO2 = 2;
 
       pixels.fill(pixels.Color(255, 100, 0), 0, NUMPIXELS);
@@ -289,8 +318,8 @@ void loop() {
   }
   //FIN AGREGADO OLED Y NEOPIXEL
 
-  if (!guardar_datos_tic) {
-    guardar_datos_tic = 60000;
+  if (!guardar_datos_tic && RTC_OK == 1) {
+    guardar_datos_tic = 900000;
 
     FSInfo fsInfo;
     SPIFFS.info(fsInfo);
@@ -309,12 +338,12 @@ void loop() {
         file.print(now.timestamp(DateTime::TIMESTAMP_FULL));
         file.print(',');
   
-        if (CO2 == 0)
+        if (muestras_CO2[0] == 0)
           file.println("---");
-        else if (CO2 < 400)
-          file.println("408");
+        else if (muestras_CO2[0] < 400)
+          file.println("400");
         else
-          file.println(CO2);
+          file.println(muestras_CO2[0]);
         
         Serial.println(file.size());
         file.close();      
@@ -340,7 +369,7 @@ void connect() {
   Serial.print(SensorID + "\n");
 
   Serial.print("CO2 (ppm): ");
-  Serial.println(CO2);
+  Serial.println(muestras_CO2[0]);
   
   Temp = myMHZ19.getTemperature();  // Request Temperature (as Celsius)
   Serial.print("Temperature (C): ");
@@ -356,7 +385,7 @@ void connect() {
   /*****************************************Envio al sistema nuevo por metodo POST****************************************/
   
   String url_post = "http://data.ambientecontrolado.com.ar/device/measure";
-  String data_post = "{\"data\":{\"extraData\":{\"chipId\":\"" + SensorID + "\",\"co2\":"+ String(CO2) + ",\"ssid\":\""+ WiFi.SSID() + "\",\"ip\":\""+ WiFi.localIP().toString() +"\",\"signal\":" + String(quality) + ",\"firmwareVersion\":\"" +  firmVer + "\"}}}";
+  String data_post = "{\"data\":{\"extraData\":{\"chipId\":\"" + SensorID + "\",\"co2\":"+ String(muestras_CO2[0]) + ",\"ssid\":\""+ WiFi.SSID() + "\",\"ip\":\""+ WiFi.localIP().toString() +"\",\"signal\":" + String(quality) + ",\"firmwareVersion\":\"" +  firmVer + "\"}}}";
 
   Serial.println("URL: " + url_post);
   Serial.println("DATA: " + data_post);
@@ -393,7 +422,7 @@ void connect() {
 
   Serial.print("[HTTP] begin...\n");
 
-  String url = "http://159.203.150.67/calidaddelaireadox/services/Services.php?acc=AD&id=" + SensorID + "&co2=" + String(CO2) + "&temp=" + String(Temp) + "&bateria=" + String(ESP.getVcc()) + "&wifi=" + String(quality);
+  String url = "http://159.203.150.67/calidaddelaireadox/services/Services.php?acc=AD&id=" + SensorID + "&co2=" + String(muestras_CO2[0]) + "&temp=" + String(Temp) + "&bateria=" + String(ESP.getVcc()) + "&wifi=" + String(quality);
 
   Serial.println("URL: " + url);
 
@@ -466,45 +495,46 @@ void testdrawstyles(void) {
     display.println(F("MonitorCO2"));
 
   } else {
-    if (CO2 > 999) {
-      display.setTextSize(4);  // Normal 1:1 pixel scale
+    if (muestras_CO2[0] > 999) {
+      display.setTextSize(5);  // Normal 1:1 pixel scale
+      display.setCursor(5, 0);             // Start at top-left corner
     } else {
-      display.setTextSize(6);  // Normal 1:1 pixel scale
+      display.setTextSize(5);  // Normal 1:1 pixel scale
+      display.setCursor(35, 0);             // Start at top-left corner
     }
 
     display.setTextColor(SSD1306_WHITE);  // Draw white text
-    display.setCursor(10, 0);             // Start at top-left corner
 
-    if (CO2 == 0) {
-      display.println(F("----"));
-    } else if (CO2 < 400) {
-      display.println(F("408"));
+    if (muestras_CO2[0] == 0) {
+      display.println(F("---"));
+    } else if (muestras_CO2[0] < 400) {
+      display.println(F("400"));
     } else {
-      display.println(CO2);
+      display.println(muestras_CO2[0]);
     }
 
-    display.setTextSize(2);  // Draw 2X-scale text
+    display.setTextSize(3);  // Draw 2X-scale text
     display.setTextColor(SSD1306_WHITE);
 
     if (cont_display == 0) {
-      display.println(F("CO2 (ppm)"));
+      display.println(F("PPM CO2"));
       cont_display = 1;
     } else if (cont_display == 1) {
       if (estado_CO2 == 0) {
         display.println(F("SIN MED"));
       } else if (estado_CO2 == 1) {
-        display.println(F("Normal"));
+        display.println(F("NORMAL"));
       } else if (estado_CO2 == 2) {
-        display.println(F("Alta"));
+        display.println(F("ALTA"));
       } else {
-        display.println(F("Muy Alta"));
+        display.println(F("ALARMA"));
       }
       cont_display = 2;
     } else if (cont_display == 2) {
       if (WiFi.status() == 0) {
-        display.println(F("WI-FI desc"));
+        display.println(F("DESC"));
       } else if (WiFi.status() == 3) {
-        display.println(F("WI-FI con"));
+        display.println(F("CONEC"));
       }
       cont_display = 0;
     }
